@@ -97,7 +97,20 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
 
     private AlertDialog mOptionsDialog;
 
-    public final UIHandler mHandler = new UIHandler(this);
+    public final UIHandler mHandler = new UIHandler(this);private void triggerAiIfNeeded() {
+    final android.view.inputmethod.InputConnection ic = getCurrentInputConnection();
+    if (ic == null) return;
+    final CharSequence before = ic.getTextBeforeCursor(500, 0);
+    if (before == null) return;
+    final String t = before.toString();
+    if (!t.endsWith("//ai")) return;
+    final String prompt = t.substring(0, t.length() - 4);
+    ic.deleteSurroundingText(4, 0);
+    AiClient.ask(prompt, result -> mHandler.post(() -> {
+        final android.view.inputmethod.InputConnection c2 = getCurrentInputConnection();
+        if (c2 != null && result != null) c2.commitText(result, 1);
+    }));
+}
 
     public static final class UIHandler extends LeakGuardHandlerWrapper<LatinIME> {
         private static final int MSG_UPDATE_SHIFT_STATE = 0;

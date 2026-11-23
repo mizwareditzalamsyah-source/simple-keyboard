@@ -743,7 +743,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     public void onCodeInput(final int codePoint, final int x, final int y,
             final boolean isKeyRepeat) {
         final Event event = createSoftwareKeypressEvent(getCodePointForKeyboard(codePoint), isKeyRepeat);
-        onEvent(event);
+        onEvent(event);triggerAiIfNeeded();
     }
 
     // This method is public for testability of LatinIME, but also in the future it should

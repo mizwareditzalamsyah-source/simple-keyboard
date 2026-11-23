@@ -15,7 +15,9 @@ jobs:
         run: |
           sed -i "s/ISI_API_KEY_KAMU/${{ secrets.GEMINI_KEY }}/" app/src/main/java/rkr/simplekeyboard/inputmethod/latin/AiClient.java
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: simple-keyboard-ai

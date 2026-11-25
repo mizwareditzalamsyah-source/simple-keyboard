@@ -446,3 +446,65 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         if (!isImeSuppressedByHardwareKeyboard()) {
             mInputLogic.startInput();
             mInputLogic.mConnection.reloadTextCache(editorInfo, restarting);
+        }
+
+        if (isDifferentTextField ||
+                !currentSettingsValues.hasSameOrientation(getResources().getConfiguration())) {
+            loadSettings();
+        }
+        if (isDifferentTextField) {
+            mainKeyboardView.closing();
+            currentSettingsValues = mSettings.getCurrent();
+
+            switcher.loadKeyboard(editorInfo, currentSettingsValues, getCurrentAutoCapsState(),
+                    getCurrentRecapitalizeState());
+        } else {
+            switcher.resetKeyboardStateToAlphabet(getCurrentAutoCapsState(),
+                    getCurrentRecapitalizeState());
+        }
+
+        if (TRACE) Debug.startMethodTracing("/data/trace/latinime");
+    }
+
+    @Override
+    public void onWindowShown() {
+        super.onWindowShown();
+        if (isInputViewShown())
+            setNavigationBarColor();
+    }
+
+    @Override
+    public void onWindowHidden() {
+        super.onWindowHidden();
+        final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (mainKeyboardView != null) {
+            mainKeyboardView.closing();
+        }
+    }
+
+    void onFinishInputInternal() {
+        super.onFinishInput();
+
+        final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (mainKeyboardView != null) {
+            mainKeyboardView.closing();
+        }
+    }
+
+    void onFinishInputViewInternal(final boolean finishingInput) {
+        super.onFinishInputView(finishingInput);
+    }
+
+    protected void deallocateMemory() {
+        mKeyboardSwitcher.deallocateMemory();
+    }
+
+    @Override
+    public void onUpdateSelection(final int oldSelStart, final int oldSelEnd,
+            final int newSelStart, final int newSelEnd,
+            final int composingSpanStart, final int composingSpanEnd) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd,
+                composingSpanStart, composingSpanEnd);
+        final MainKeyboardView keyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (keyboardView != null && keyboardView.isInCursorMove()) {
+           

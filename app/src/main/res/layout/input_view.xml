@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
 /*
-**
 ** Copyright 2011, The Android Open Source Project
 ** Copyright 2026, Raimondas Rimkus
 **
@@ -24,11 +23,35 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     style="?attr/inputViewStyle">
-    <rkr.simplekeyboard.inputmethod.keyboard.MainKeyboardView
-        android:id="@+id/keyboard_view"
-        android:layoutDirection="ltr"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical">
+        <LinearLayout
+            android:id="@+id/ai_bar"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#FF2B2B2B">
+            <TextView
+                android:id="@+id/ai_button"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:text="AI"
+                android:textColor="#FFFFFFFF"
+                android:textStyle="bold"
+                android:clickable="true" />
+        </LinearLayout>
+        <rkr.simplekeyboard.inputmethod.keyboard.MainKeyboardView
+            android:id="@+id/keyboard_view"
+            android:layoutDirection="ltr"
+            android:fitsSystemWindows="true"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
 </rkr.simplekeyboard.inputmethod.latin.InputView>

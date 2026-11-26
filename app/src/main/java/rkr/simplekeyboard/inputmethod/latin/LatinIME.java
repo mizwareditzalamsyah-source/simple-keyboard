@@ -507,4 +507,384 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
                 composingSpanStart, composingSpanEnd);
         final MainKeyboardView keyboardView = mKeyboardSwitcher.getMainKeyboardView();
         if (keyboardView != null && keyboardView.isInCursorMove()) {
-           
+            return;
+        }
+
+        Log.i(TAG, "Update Selection. Cursor position = " + newSelStart + "," + newSelEnd);
+
+        mInputLogic.onUpdateSelection(newSelStart, newSelEnd);
+        if (isInputViewShown()) {
+            mInputLogic.reloadTextCache();
+
+            mKeyboardSwitcher.requestUpdatingShiftState(getCurrentAutoCapsState(),
+                    getCurrentRecapitalizeState());
+        }
+    }
+
+    @Override
+    public void hideWindow() {
+        mKeyboardSwitcher.onHideWindow();
+
+        if (TRACE) Debug.stopMethodTracing();
+        if (isShowingOptionDialog()) {
+            mOptionsDialog.dismiss();
+            mOptionsDialog = null;
+        }
+        super.hideWindow();
+    }
+
+    @Override
+    public void onComputeInsets(final InputMethodService.Insets outInsets) {
+        super.onComputeInsets(outInsets);
+        if (mInputView == null) {
+            return;
+        }
+        final View visibleKeyboardView = mKeyboardSwitcher.getVisibleKeyboardView();
+        if (visibleKeyboardView == null) {
+            return;
+        }
+        final int inputHeight = mInputView.getHeight();
+        if (isImeSuppressedByHardwareKeyboard() && !visibleKeyboardView.isShown()) {
+            outInsets.contentTopInsets = inputHeight;
+            outInsets.visibleTopInsets = inputHeight;
+            return;
+        }
+        final int aiHeight = (mAiBar != null && mAiBar.isShown()) ? mAiBar.getHeight() : 0;
+        final int visibleTopY = inputHeight - visibleKeyboardView.getHeight() - aiHeight;
+        if (visibleKeyboardView.isShown()) {
+            final int touchLeft = 0;
+            final int touchTop = mKeyboardSwitcher.isShowingMoreKeysPanel() ? 0 : visibleTopY;
+            final int touchRight = visibleKeyboardView.getWidth();
+            final int touchBottom = inputHeight
+                    + EXTENDED_TOUCHABLE_REGION_HEIGHT;
+            outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION;
+            outInsets.touchableRegion.set(touchLeft, touchTop, touchRight, touchBottom);
+        }
+        outInsets.contentTopInsets = visibleTopY;
+        outInsets.visibleTopInsets = visibleTopY;
+    }
+
+    @Override
+    public boolean onShowInputRequested(final int flags, final boolean configChange) {
+        if (isImeSuppressedByHardwareKeyboard()) {
+            return true;
+        }
+        return super.onShowInputRequested(flags, configChange);
+    }
+
+    @Override
+    public boolean onEvaluateFullscreenMode() {
+        if (isImeSuppressedByHardwareKeyboard()) {
+            return false;
+        }
+        final boolean isFullscreenModeAllowed = Settings.readUseFullscreenMode(getResources());
+        if (super.onEvaluateFullscreenMode() && isFullscreenModeAllowed) {
+            final EditorInfo ei = getCurrentInputEditorInfo();
+            return !(ei != null && ((ei.imeOptions & EditorInfo.IME_FLAG_NO_EXTRACT_UI) != 0));
+        }
+        return false;
+    }
+
+    @Override
+    public void updateFullscreenMode() {
+        super.updateFullscreenMode();
+        updateSoftInputWindowLayoutParameters();
+    }
+
+    private void updateSoftInputWindowLayoutParameters() {
+        final Window window = getWindow().getWindow();
+        ViewLayoutUtils.updateLayoutHeightOf(window, LayoutParams.MATCH_PARENT);
+        if (mInputView != null) {
+            final int layoutHeight = isFullscreenMode()
+                    ? LayoutParams.WRAP_CONTENT : LayoutParams.MATCH_PARENT;
+            final View inputArea = window.findViewById(android.R.id.inputArea);
+            ViewLayoutUtils.updateLayoutHeightOf(inputArea, layoutHeight);
+            ViewLayoutUtils.updateLayoutGravityOf(inputArea, Gravity.BOTTOM);
+            ViewLayoutUtils.updateLayoutHeightOf(mInputView, layoutHeight);
+        }
+    }
+
+    int getCurrentAutoCapsState() {
+        return mInputLogic.getCurrentAutoCapsState(mSettings.getCurrent(),
+                mRichImm.getCurrentSubtype().getKeyboardLayoutSet());
+    }
+
+    int getCurrentRecapitalizeState() {
+        return mInputLogic.getCurrentRecapitalizeState();
+    }
+
+    @Override
+    public boolean onCustomRequest(final int requestCode) {
+        switch (requestCode) {
+            case Constants.CUSTOM_CODE_SHOW_INPUT_METHOD_PICKER:
+                return showInputMethodPicker();
+        }
+        return false;
+    }
+
+    private boolean showInputMethodPicker() {
+        if (isShowingOptionDialog()) {
+            return false;
+        }
+        mOptionsDialog = mRichImm.showSubtypePicker(this,
+                mKeyboardSwitcher.getMainKeyboardView().getWindowToken(), this);
+        return mOptionsDialog != null;
+    }
+
+    public Locale getCurrentLayoutLocale() {
+        return mLocale;
+    }
+
+    @Override
+    public void onMoveCursorPointer(int steps) {
+        if (mInputLogic.mConnection.hasCursorPosition()) {
+            if (TextUtils.getLayoutDirectionFromLocale(getCurrentLayoutLocale()) == View.LAYOUT_DIRECTION_RTL)
+                steps = -steps;
+
+            steps = mInputLogic.mConnection.getUnicodeSteps(steps, true);
+            if (steps == 0) {
+                return;
+            }
+            final int end = mInputLogic.mConnection.getExpectedSelectionEnd() + steps;
+            final int start = mInputLogic.mConnection.hasSelection() ? mInputLogic.mConnection.getExpectedSelectionStart() : end;
+            mInputLogic.mConnection.setSelection(start, end);
+            hapticTickFeedback();
+        } else {
+            for (; steps < 0; steps++)
+                mInputLogic.sendDownUpKeyEvent(KeyEvent.KEYCODE_DPAD_LEFT);
+            for (; steps > 0; steps--)
+                mInputLogic.sendDownUpKeyEvent(KeyEvent.KEYCODE_DPAD_RIGHT);
+            hapticTickFeedback();
+        }
+    }
+
+    @Override
+    public void onMoveDeletePointer(int steps) {
+        if (mInputLogic.mConnection.hasCursorPosition()) {
+            steps = mInputLogic.mConnection.getUnicodeSteps(steps, false);
+            if (steps == 0) {
+                return;
+            }
+            final int end = mInputLogic.mConnection.getExpectedSelectionEnd();
+            final int start = mInputLogic.mConnection.getExpectedSelectionStart() + steps;
+            mInputLogic.mConnection.setSelection(start, end);
+            hapticTickFeedback();
+        } else {
+            for (; steps < 0; steps++)
+                mInputLogic.sendDownUpKeyEvent(KeyEvent.KEYCODE_DEL);
+            hapticTickFeedback();
+        }
+    }
+
+    @Override
+    public void onUpWithDeletePointerActive() {
+        if (mInputLogic.mConnection.hasSelection())
+            mInputLogic.mConnection.deleteSelectedText();
+    }
+
+    @Override
+    public void onUpWithSpacePointerActive() {
+        mInputLogic.reloadTextCache();
+    }
+
+    private boolean isShowingOptionDialog() {
+        return mOptionsDialog != null && mOptionsDialog.isShowing();
+    }
+
+    public void switchToNextSubtype() {
+        final IBinder token = getWindow().getWindow().getAttributes().token;
+        mRichImm.switchToNextInputMethod(token, !shouldSwitchToOtherInputMethods(token));
+    }
+
+    private int getCodePointForKeyboard(final int codePoint) {
+        if (Constants.CODE_SHIFT == codePoint) {
+            final Keyboard currentKeyboard = mKeyboardSwitcher.getKeyboard();
+            if (null != currentKeyboard && currentKeyboard.mId.isAlphabetKeyboard()) {
+                return codePoint;
+            }
+            return Constants.CODE_SYMBOL_SHIFT;
+        }
+        return codePoint;
+    }
+
+    // Implementation of {@link KeyboardActionListener}.
+    @Override
+    public void onCodeInput(final int codePoint, final int x, final int y,
+            final boolean isKeyRepeat) {
+        final Event event = createSoftwareKeypressEvent(getCodePointForKeyboard(codePoint), isKeyRepeat);
+        onEvent(event);
+    }
+
+    public void onEvent(final Event event) {
+        final InputTransaction completeInputTransaction =
+                mInputLogic.onCodeInput(mSettings.getCurrent(), event);
+        updateStateAfterInputTransaction(completeInputTransaction);
+        mKeyboardSwitcher.onEvent(event, getCurrentAutoCapsState(), getCurrentRecapitalizeState());
+    }
+
+    public static Event createSoftwareKeypressEvent(final int keyCodeOrCodePoint, final boolean isKeyRepeat) {
+        final int keyCode;
+        final int codePoint;
+        if (keyCodeOrCodePoint <= 0) {
+            keyCode = keyCodeOrCodePoint;
+            codePoint = Event.NOT_A_CODE_POINT;
+        } else {
+            keyCode = Event.NOT_A_KEY_CODE;
+            codePoint = keyCodeOrCodePoint;
+        }
+        return Event.createSoftwareKeypressEvent(codePoint, keyCode, isKeyRepeat);
+    }
+
+    @Override
+    public void onTextInput(final String rawText) {
+        final Event event = Event.createSoftwareTextEvent(rawText, Constants.CODE_OUTPUT_TEXT);
+        final InputTransaction completeInputTransaction =
+                mInputLogic.onTextInput(mSettings.getCurrent(), event);
+        updateStateAfterInputTransaction(completeInputTransaction);
+        mKeyboardSwitcher.onEvent(event, getCurrentAutoCapsState(), getCurrentRecapitalizeState());
+    }
+
+    @Override
+    public void onFinishSlidingInput() {
+        mKeyboardSwitcher.onFinishSlidingInput(getCurrentAutoCapsState(),
+                getCurrentRecapitalizeState());
+    }
+
+    private void loadKeyboard() {
+        loadSettings();
+        if (mKeyboardSwitcher.getMainKeyboardView() != null) {
+            mKeyboardSwitcher.loadKeyboard(getCurrentInputEditorInfo(), mSettings.getCurrent(),
+                    getCurrentAutoCapsState(), getCurrentRecapitalizeState());
+        }
+    }
+
+    private void updateStateAfterInputTransaction(final InputTransaction inputTransaction) {
+        switch (inputTransaction.getRequiredShiftUpdate()) {
+        case InputTransaction.SHIFT_UPDATE_LATER:
+            mHandler.postUpdateShiftState();
+            break;
+        case InputTransaction.SHIFT_UPDATE_NOW:
+            mKeyboardSwitcher.requestUpdatingShiftState(getCurrentAutoCapsState(),
+                    getCurrentRecapitalizeState());
+            break;
+        default: // SHIFT_NO_UPDATE
+        }
+    }
+
+    private void hapticAndAudioFeedback(final int code, final int repeatCount) {
+        final MainKeyboardView keyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (keyboardView != null && keyboardView.isInDraggingFinger()) {
+            return;
+        }
+        if (repeatCount > 0) {
+            if (code == Constants.CODE_DELETE && !mInputLogic.mConnection.canDeleteCharacters()) {
+                return;
+            }
+            if (repeatCount % PERIOD_FOR_AUDIO_AND_HAPTIC_FEEDBACK_IN_KEY_REPEAT == 0) {
+                return;
+            }
+        }
+        final AudioAndHapticFeedbackManager feedbackManager = AudioAndHapticFeedbackManager.getInstance();
+        if (repeatCount == 0) {
+            feedbackManager.performHapticFeedback(keyboardView);
+        }
+        feedbackManager.performAudioFeedback(code);
+    }
+
+    private void hapticTickFeedback() {
+        final AudioAndHapticFeedbackManager feedbackManager = AudioAndHapticFeedbackManager.getInstance();
+        feedbackManager.performTickFeedback();
+    }
+
+    @Override
+    public void onPressKey(final int primaryCode, final int repeatCount,
+            final boolean isSinglePointer) {
+        mKeyboardSwitcher.onPressKey(primaryCode, isSinglePointer, getCurrentAutoCapsState(),
+                getCurrentRecapitalizeState());
+        hapticAndAudioFeedback(primaryCode, repeatCount);
+    }
+
+    @Override
+    public void onReleaseKey(final int primaryCode, final boolean withSliding) {
+        mKeyboardSwitcher.onReleaseKey(primaryCode, withSliding, getCurrentAutoCapsState(),
+                getCurrentRecapitalizeState());
+    }
+
+    private final BroadcastReceiver mRingerModeChangeReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(final Context context, final Intent intent) {
+            final String action = intent.getAction();
+            if (action.equals(AudioManager.RINGER_MODE_CHANGED_ACTION)) {
+                AudioAndHapticFeedbackManager.getInstance().onRingerModeChanged();
+            }
+        }
+    };
+
+    public void launchSettings() {
+        requestHideSelf(0);
+        final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
+        if (mainKeyboardView != null) {
+            mainKeyboardView.closing();
+        }
+        final Intent intent = new Intent();
+        intent.setClass(LatinIME.this, SettingsActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(intent);
+    }
+
+    @Override
+    protected void dump(final FileDescriptor fd, final PrintWriter fout, final String[] args) {
+        super.dump(fd, fout, args);
+
+        final Printer p = new PrintWriterPrinter(fout);
+        p.println("LatinIME state :");
+        p.println("  VersionCode = " + ApplicationUtils.getVersionCode(this));
+        p.println("  VersionName = " + ApplicationUtils.getVersionName(this));
+        final Keyboard keyboard = mKeyboardSwitcher.getKeyboard();
+        final int keyboardMode = keyboard != null ? keyboard.mId.mMode : -1;
+        p.println("  Keyboard mode = " + keyboardMode);
+    }
+
+    public boolean shouldSwitchToOtherInputMethods(final IBinder token) {
+        if (!mSettings.getCurrent().mImeSwitchEnabled) {
+            return false;
+        }
+        return mRichImm.shouldOfferSwitchingToOtherInputMethods(token);
+    }
+
+    public boolean shouldShowLanguageSwitchKey() {
+        if (mSettings.getCurrent().isLanguageSwitchKeyDisabled()) {
+            return false;
+        }
+        if (mRichImm.hasMultipleEnabledSubtypes()) {
+            return true;
+        }
+
+        final IBinder token = getWindow().getWindow().getAttributes().token;
+        if (token == null) {
+            return false;
+        }
+        return shouldSwitchToOtherInputMethods(token);
+    }
+
+    private void setNavigationBarColor() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            final Window window = getWindow().getWindow();
+            if (window == null) {
+                return;
+            }
+            final SharedPreferences prefs = PreferenceManagerCompat.getDeviceSharedPreferences(this);
+            final int keyboardColor = Settings.readKeyboardColor(prefs, this);
+            window.setNavigationBarColor(keyboardColor);
+            window.setNavigationBarContrastEnforced(false);
+            final int flag = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            if (ResourceUtils.isBrightColor(keyboardColor)) {
+                window.getInsetsController().setSystemBarsAppearance(flag, flag);
+            } else {
+                window.getInsetsController().setSystemBarsAppearance(0, flag);
+            }
+        }
+    }
+}
